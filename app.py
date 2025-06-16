@@ -23,25 +23,32 @@ class SearchConsoleAnalyzer:
             # Load credentials from uploaded JSON
             creds_data = json.loads(credentials_json)
             
+            # Use localhost redirect URI (standard for desktop apps)
+            redirect_uri = 'http://localhost:8080/callback'
+            
             # Create flow object
             flow = Flow.from_client_config(
                 creds_data,
                 scopes=SCOPES,
-                redirect_uri='urn:ietf:wg:oauth:2.0:oob'
+                redirect_uri=redirect_uri
             )
             
             # Get authorization URL
-            auth_url, _ = flow.authorization_url(prompt='consent')
+            auth_url, _ = flow.authorization_url(
+                prompt='consent',
+                access_type='offline',
+                include_granted_scopes='true'
+            )
             return flow, auth_url
             
         except Exception as e:
             st.error(f"Authentication error: {str(e)}")
             return None, None
     
-    def complete_authentication(self, flow, auth_code):
-        """Complete the OAuth flow with authorization code"""
+    def complete_authentication(self, flow, authorization_response_url):
+        """Complete the OAuth flow with full redirect URL"""
         try:
-            flow.fetch_token(code=auth_code)
+            flow.fetch_token(authorization_response=authorization_response_url)
             self.credentials = flow.credentials
             self.service = build('searchconsole', 'v1', credentials=self.credentials)
             return True
@@ -180,15 +187,27 @@ def main():
                 st.session_state.flow = flow
                 st.markdown(f"[🔗 Click here to authorize]({auth_url})")
                 
-                auth_code = st.text_input(
-                    "Enter authorization code:",
-                    help="Copy the code from the authorization page"
+                st.markdown("""
+                **Instructions:**
+                1. Click the authorization link above
+                2. Sign in to your Google account
+                3. Grant permissions to your app
+                4. You'll be redirected to a localhost page that may show "This site can't be reached"
+                5. **Copy the entire URL** from your browser address bar
+                6. Paste it in the field below
+                """)
+                
+                redirect_url = st.text_input(
+                    "Paste the full redirect URL here:",
+                    placeholder="http://localhost:8080/callback?code=...",
+                    help="Copy the complete URL from your browser after authorization"
                 )
                 
-                if auth_code and st.button("Complete Authentication"):
-                    if st.session_state.analyzer.complete_authentication(st.session_state.flow, auth_code):
+                if redirect_url and st.button("Complete Authentication"):
+                    if st.session_state.analyzer.complete_authentication(st.session_state.flow, redirect_url):
                         st.success("✅ Authentication successful!")
                         st.session_state.authenticated = True
+                        st.rerun()
                     else:
                         st.error("❌ Authentication failed")
         
@@ -373,6 +392,7 @@ def main():
            - Create a new project or select existing one
            - Enable the Search Console API
            - Create OAuth2 credentials (Desktop application)
+           - **Important**: Add `http://localhost:8080/callback` to authorized redirect URIs
            - Download the JSON file
         
         2. **Upload credentials and authenticate**
